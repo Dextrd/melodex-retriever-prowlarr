@@ -131,6 +131,7 @@ def health(body: HealthRequest) -> dict[str, Any]:
             qb_version = qb.version()
     except Exception as e:
         return {"status": "unhealthy", "message": f"Couldn't reach qBittorrent: {e}"}
+    tidy(settings)
     message = f"Prowlarr {version} with {indexers} indexer{'s' if indexers != 1 else ''}, qBittorrent {qb_version}"
     folder = Path(str(settings.get("downloadsFolder") or settings.get("savePath") or "/downloads/melodex"))
     if not folder.parent.is_dir():
@@ -152,10 +153,19 @@ def search(body: SearchRequest) -> dict[str, Any]:
     return {"candidates": dump(candidates)}
 
 
+def tidy(settings: dict[str, Any], starting: str | None = None) -> None:
+    """Clears up marks left on qBittorrent's torrents, once after starting; never in the way of what's asked."""
+    try:
+        retrieve.tidy(settings, jobs.running() | ({starting} if starting else set()))
+    except Exception:
+        pass
+
+
 @app.post("/v1/fetch", status_code=202)
 def fetch(body: FetchRequest) -> dict[str, Any]:
     check_settings(body.settings)
     directory = staging_directory(STAGING, body.staging_directory)
+    tidy(body.settings, body.job_id)
     job = jobs.start(body.job_id, lambda j: retrieve.fetch(j, body.candidate.candidate_id, body.target, directory, body.settings))
     return job.status()
 

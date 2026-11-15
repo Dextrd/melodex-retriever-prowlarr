@@ -82,6 +82,7 @@ class FakeQBittorrent:
         self.magnets: dict[str, bytes] = {}  # a magnet link, and the torrent its peers would send
         self.forms: list[dict[str, list[str]]] = []
         self.unlisted = 0  # how many times a torrent just added isn't listed yet, as qBittorrent adds it in the background
+        self.tag_list: set[str] = set()  # qBittorrent keeps every tag ever used until it's deleted
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path.removeprefix("/api/v2")
@@ -101,11 +102,25 @@ class FakeQBittorrent:
             tags = form["tags"][0] if "tags" in form else re.search(rb'name="tags"\r\n\r\n(.*?)\r\n', body)[1].decode()
             self.added[info_hash] = {"files": files, "started": False, "body": body, "tags": set(tags.split(",")),
                                      "metadata": metadata, "unlisted": self.unlisted}
+            self.tag_list |= set(tags.split(","))
             return httpx.Response(200, text="Ok.")
         if path in ("/torrents/addTags", "/torrents/removeTags"):
             t = self.added[form["hashes"][0]]
-            t["tags"] = t["tags"] | {form["tags"][0]} if path.endswith("addTags") else t["tags"] - {form["tags"][0]}
+            named = set(form["tags"][0].split(","))
+            t["tags"] = t["tags"] | named if path.endswith("addTags") else t["tags"] - named
+            if path.endswith("addTags"):
+                self.tag_list |= named
             return httpx.Response(200)
+        if path == "/torrents/deleteTags":
+            named = set(form["tags"][0].split(","))
+            self.tag_list -= named
+            for t in self.added.values():
+                t["tags"] -= named
+            return httpx.Response(200)
+        if path == "/torrents/tags":
+            return httpx.Response(200, json=sorted(self.tag_list - {""}))
+        if path == "/torrents/info" and "hashes" not in request.url.params:
+            return httpx.Response(200, json=[{"hash": h, "name": "Dummy", "tags": ", ".join(sorted(t["tags"] - {""}))} for h, t in self.added.items()])
         if path == "/torrents/info":
             h = request.url.params["hashes"]
             t = self.added.get(h)
@@ -168,6 +183,8 @@ def fakes(monkeypatch, tmp_path):
         return httpx.Client(base_url=base_url, headers=headers, transport=httpx.MockTransport(handler))
 
     monkeypatch.setattr(clients, "http", fake_http)
+    # Each test's qBittorrent is new, so tidied afresh.
+    monkeypatch.setattr(retrieve, "_tidied", set())
     settings = {**SETTINGS, "downloadsFolder": str(tmp_path / "downloads")}
     return TestClient(main.app), prowlarr, qb, settings
 
@@ -302,6 +319,33 @@ def test_an_album_is_downloaded_with_just_its_tracks_and_left_seeding(fakes):
     assert "test-key" in prowlarr.keys[-1]  # the key is put back to fetch the .torrent
 
 
+def test_a_finished_fetch_leaves_no_tag_of_its_own_behind(fakes):
+    client, _, qb, settings = fakes
+    candidate = client.post("/v1/search", json={"settings": settings, "target": ALBUM}).json()["candidates"][0]
+    client.post("/v1/fetch", json={"settings": settings, "jobId": "job-tags", "target": ALBUM, "candidate": candidate, "stagingDirectory": "job-tags"})
+    assert wait(client, "job-tags")["state"] == "completed"
+
+    assert qb.added[DUMMY_HASH]["tags"] == {"melodex"}
+    assert qb.tag_list == {"melodex"}
+
+
+def test_tags_left_by_old_fetches_are_cleared_once_when_qbittorrent_is_first_reached(fakes):
+    client, _, qb, settings = fakes
+    info_hash, files = torrent.read(DUMMY_FLAC)
+    # From before marks were taken off, and one only in qBittorrent's list; a torrent added by hand keeps its own tags.
+    qb.added[info_hash] = {"files": files, "started": True, "body": b"", "tags": {"melodex", "melodex-old-1", "melodex-old-2"}, "metadata": True}
+    qb.added["handmade"] = {"files": [], "started": True, "body": b"", "tags": {"music"}, "metadata": True}
+    qb.tag_list = {"melodex", "melodex-old-1", "melodex-old-2", "melodex-gone", "music"}
+
+    assert client.post("/v1/health", json={"settings": settings}).json()["status"] in ("healthy", "degraded")
+
+    assert qb.added[info_hash]["tags"] == {"melodex"} and qb.added["handmade"]["tags"] == {"music"}
+    assert qb.tag_list == {"melodex", "music"}
+    qb.tag_list.add("melodex-later")
+    client.post("/v1/health", json={"settings": settings})
+    assert "melodex-later" in qb.tag_list  # only once
+
+
 def test_a_song_downloads_only_its_file_and_can_be_removed_afterwards(fakes):
     client, _, qb, settings = fakes
     settings = {**settings, "afterwards": "remove"}
@@ -347,6 +391,7 @@ def test_a_magnet_link_fetches_its_file_list_then_downloads_just_the_song(fakes)
 
 def test_songs_sharing_a_torrent_keep_each_others_files_and_the_last_removes_it(fakes):
     client, _, qb, settings = fakes
+    retrieve._tidied.add(settings["qbittorrentUrl"])  # running a while: job-0's fetch is another one still going
     settings = {**settings, "afterwards": "remove"}
     info_hash, files = torrent.read(DUMMY_FLAC)
     # Another song's request added the torrent, turned off every file but its own, and is still downloading.
@@ -369,6 +414,7 @@ def test_songs_sharing_a_torrent_keep_each_others_files_and_the_last_removes_it(
 
 def test_a_torrent_qbittorrent_stops_says_why_and_is_kept_while_another_song_uses_it(fakes):
     client, _, qb, settings = fakes
+    retrieve._tidied.add(settings["qbittorrentUrl"])  # running a while: job-0's fetch is another one still going
     info_hash, files = torrent.read(DUMMY_FLAC)
     qb.added[info_hash] = {"files": files, "started": False, "body": b"", "tags": {"melodex", "melodex-job-0"}, "metadata": True,
                            "state": "error"}

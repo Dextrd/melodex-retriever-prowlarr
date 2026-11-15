@@ -142,6 +142,21 @@ class QBittorrent:
     def remove_tags(self, info_hash: str, tags: str) -> None:
         self.client.post("/torrents/removeTags", data={"hashes": info_hash, "tags": tags}).raise_for_status()
 
+    def delete_tags(self, tags: list[str]) -> None:
+        """Deletes tags from qBittorrent's list of them, and from any torrent that has them."""
+        if tags:
+            self.client.post("/torrents/deleteTags", data={"tags": ",".join(tags)}).raise_for_status()
+
+    def tags(self) -> list[str]:
+        response = self.client.get("/torrents/tags")
+        response.raise_for_status()
+        return response.json()
+
+    def torrents(self) -> list[dict[str, Any]]:
+        response = self.client.get("/torrents/info")
+        response.raise_for_status()
+        return response.json()
+
     def problem(self, name: str) -> str | None:
         """The latest warning in qBittorrent's log about the named torrent, which says why it stopped."""
         try:

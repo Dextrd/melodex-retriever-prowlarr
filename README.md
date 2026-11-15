@@ -19,6 +19,10 @@ It lives in the Melodex repository for now and will move to its own repository l
   wasn't asked for (the rest of the album, covers, logs), starts it, and reports progress. When the files are done,
   it copies them to staging, leaving qBittorrent to seed. A torrent that was already in qBittorrent keeps its files;
   the requested ones are added to it. Copies are reflinks where the filesystem can make them (see below).
+  While it runs, the torrent also carries a `melodex-<job>` tag, so songs sharing a torrent know who's still using
+  it; the tag is deleted once the fetch is done. The first time the plugin reaches qBittorrent after starting, it
+  deletes any such tags left behind (by a fetch cut short, or by older versions of the plugin). The `melodex` tag stays: it
+  marks the torrents Melodex added.
 - **Cancel.** Removes a torrent it added, with what it downloaded. One that was already there stays.
 
 Melodex gives up on a fetch that makes no progress for 30 minutes, and cancels it.

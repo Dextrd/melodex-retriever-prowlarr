@@ -365,13 +365,43 @@ def fetch(job: Job, candidate_id: str, target: Target, directory: Path, settings
 
 
 def _let_go(qb: QBittorrent, info_hash: str, mine: str, remove: bool) -> None:
-    """Takes this request's mark off the torrent, and removes it if asked and no other request is using it."""
+    """Takes this request's mark off the torrent, and removes it if asked and no other request is using it. The mark is
+    deleted from qBittorrent's list of tags too, which otherwise keeps it after no torrent has it."""
     qb.remove_tags(info_hash, mine)
+    qb.delete_tags([mine])
     if remove and (info := qb.info(info_hash)) is not None:
         tags = {tag.strip() for tag in str(info.get("tags") or "").split(",")}
         # Only a torrent Melodex added goes; one someone added by hand that a request used stays.
         if "melodex" in tags and not any(tag.startswith("melodex-") for tag in tags):
             qb.delete(info_hash, files=True)
+
+
+def _job_tags(text: Any) -> set[str]:
+    return {tag.strip() for tag in str(text or "").split(",") if tag.strip().startswith("melodex-")}
+
+
+# The qBittorrents tidied since the plugin started, by address.
+_tidied: set[str] = set()
+
+
+def tidy(settings: dict[str, Any], running: set[str]) -> None:
+    """Once after the plugin starts, for each qBittorrent: takes the marks of fetches that aren't running any more off
+    their torrents (left from before marks were taken off, or by a fetch a restart cut short) and deletes every mark no
+    torrent uses. The plain melodex tag stays: it says which torrents Melodex added."""
+    url = str(settings.get("qbittorrentUrl") or "")
+    if url in _tidied:
+        return
+    with QBittorrent(settings) as qb:
+        wanted = {f"melodex-{job}" for job in running}
+        used: set[str] = set()
+        for found in qb.torrents():
+            tags = _job_tags(found.get("tags"))
+            stale = tags - wanted
+            if stale:
+                qb.remove_tags(found["hash"], ",".join(sorted(stale)))
+            used |= tags & wanted
+        qb.delete_tags(sorted(tag for tag in qb.tags() if tag.startswith("melodex-") and tag not in used))
+    _tidied.add(url)
 
 
 def _wait_for_files(job: Job, qb: QBittorrent, info_hash: str) -> list[dict[str, Any]]:

@@ -156,6 +156,11 @@ class Jobs:
         with self._lock:
             return self._jobs.get(job_id)
 
+    def running(self) -> set[str]:
+        """The jobs queued or running."""
+        with self._lock:
+            return {j.id for j in self._jobs.values() if j.state in ("queued", "running")}
+
     def _run(self, job: Job, work: Callable[[Job], list[dict[str, Any]]]) -> None:
         try:
             job.check()
