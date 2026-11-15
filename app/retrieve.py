@@ -461,9 +461,26 @@ def _check(qb: QBittorrent, info: dict[str, Any] | None) -> None:
         raise RuntimeError("The torrent was removed from qBittorrent.")
     if info.get("state") in ("error", "missingFiles"):
         why = qb.problem(str(info.get("name") or ""))
+        if why and ("Permission denied" in why or "No such file or directory" in why):
+            # Most often the save folder is somewhere qBittorrent's container doesn't have.
+            default = qb.default_save_path()
+            why += (". Check that the Prowlarr plugin's Save folder is a folder qBittorrent has, as qBittorrent sees it"
+                    + (f" (its default is {default})" if default else "") + ".")
         raise RuntimeError(f"qBittorrent stopped the torrent ({info['state']}): {why}" if why else
                            f"qBittorrent stopped the torrent ({info['state']}); its log says why, often that it can't "
                            f"write to the save folder.")
+
+
+def save_folder_hint(save_path: str, default: str | None) -> str | None:
+    """Says so when the save folder isn't under qBittorrent's own default, so may be somewhere qBittorrent doesn't have
+    (a different mount in its container). Only a warning: qBittorrent may have that folder mounted too."""
+    if not default:
+        return None
+    save, base = PurePosixPath(save_path.rstrip("/") or "/"), PurePosixPath(default.rstrip("/") or "/")
+    if save == base or base in save.parents:
+        return None
+    return (f"qBittorrent saves under {base}, but the save folder is {save}, which qBittorrent may not have; "
+            f"try {base / 'melodex'}")
 
 
 def _local_folder(settings: dict[str, Any], info: dict[str, Any]) -> Path:

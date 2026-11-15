@@ -81,6 +81,7 @@ class FakeQBittorrent:
         self.folder, self.known, self.added, self.deleted, self.priorities = folder, torrents, {}, [], {}
         self.magnets: dict[str, bytes] = {}  # a magnet link, and the torrent its peers would send
         self.forms: list[dict[str, list[str]]] = []
+        self.default_save = "/downloads"
         self.unlisted = 0  # how many times a torrent just added isn't listed yet, as qBittorrent adds it in the background
         self.tag_list: set[str] = set()  # qBittorrent keeps every tag ever used until it's deleted
 
@@ -89,6 +90,8 @@ class FakeQBittorrent:
         form = parse_qs(request.content.decode(errors="replace")) if request.method == "POST" and b"Content-Disposition" not in request.content else {}
         if path == "/app/version":
             return httpx.Response(200, text="v5.1.4")
+        if path == "/app/defaultSavePath":
+            return httpx.Response(200, text=self.default_save)
         if path == "/torrents/add":
             body = request.content
             self.forms.append(form)
@@ -424,6 +427,8 @@ def test_a_torrent_qbittorrent_stops_says_why_and_is_kept_while_another_song_use
 
     assert status["state"] == "failed"
     assert "Permission denied" in status["error"]
+    # What to change, with where qBittorrent saves by default.
+    assert "Save folder is a folder qBittorrent has, as qBittorrent sees it (its default is /downloads)" in status["error"]
     assert qb.deleted == [] and qb.added[info_hash]["tags"] == {"melodex", "melodex-job-0"}
 
 
@@ -455,6 +460,17 @@ def test_health_reports_both_services(fakes):
     health = client.post("/v1/health", json={"settings": {**settings, "savePath": "/downloads/melodex"}}).json()
     assert health["status"] == "healthy"
     assert health["message"] == "Prowlarr 2.6.5 with 1 indexer, qBittorrent v5.1.4"
+
+
+def test_health_warns_when_the_save_folder_is_not_under_qbittorrents_own(fakes):
+    client, _, qb, settings = fakes
+    qb.default_save = "/data/torrents"
+    health = client.post("/v1/health", json={"settings": {**settings, "savePath": "/downloads/melodex"}}).json()
+    assert health["status"] == "degraded"
+    assert ("qBittorrent saves under /data/torrents, but the save folder is /downloads/melodex, which qBittorrent may "
+            "not have; try /data/torrents/melodex") in health["message"]
+    # Under it, all's well.
+    assert client.post("/v1/health", json={"settings": {**settings, "savePath": "/data/torrents/melodex"}}).json()["status"] == "healthy"
 
 
 @pytest.mark.parametrize("path, artist, expected", [

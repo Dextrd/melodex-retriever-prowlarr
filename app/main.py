@@ -31,10 +31,14 @@ SETTINGS_SCHEMA: dict[str, Any] = {
         "category": {"type": "string", "default": "melodex", "title": "Category",
                      "description": "The qBittorrent category torrents are added with."},
         "savePath": {"type": "string", "default": "/downloads/melodex", "title": "Save folder",
-                     "description": "Where qBittorrent saves torrents added for Melodex, as qBittorrent sees it."},
+                     "description": "Where qBittorrent saves torrents added for Melodex, as qBittorrent sees it: a "
+                                    "folder in qBittorrent's container. If qBittorrent has your downloads disk at "
+                                    "/data, say, this is /data/torrents/melodex, even though this plugin sees it "
+                                    "at /downloads/melodex."},
         "downloadsFolder": {"type": "string", "default": "", "title": "Save folder for this plugin",
                             "description": "The same folder as this plugin's container sees it, when it's mounted "
-                                           "somewhere else. Leave empty when it's the same path."},
+                                           "somewhere else, such as /downloads/melodex with Melodex's "
+                                           "DOWNLOADS_PATH mounted at /downloads. Leave empty when it's the same path."},
         "format": {"type": "string", "enum": retrieve.FORMATS, "default": "best", "title": "Format",
                    "description": "best prefers FLAC and takes MP3 and other formats otherwise. flac takes only "
                                   "lossless files; mp3 only MP3s."},
@@ -129,13 +133,20 @@ def health(body: HealthRequest) -> dict[str, Any]:
     try:
         with QBittorrent(settings) as qb:
             qb_version = qb.version()
+            default_save = qb.default_save_path()
     except Exception as e:
         return {"status": "unhealthy", "message": f"Couldn't reach qBittorrent: {e}"}
     tidy(settings)
     message = f"Prowlarr {version} with {indexers} indexer{'s' if indexers != 1 else ''}, qBittorrent {qb_version}"
+    # Both sides of the save folder: qBittorrent's, then this plugin's.
+    problems = []
+    if hint := retrieve.save_folder_hint(str(settings.get("savePath") or "/downloads/melodex"), default_save):
+        problems.append(hint)
     folder = Path(str(settings.get("downloadsFolder") or settings.get("savePath") or "/downloads/melodex"))
     if not folder.parent.is_dir():
-        return {"status": "degraded", "message": f"{message}, but this plugin can't see {folder.parent}; mount qBittorrent's downloads folder there."}
+        problems.append(f"this plugin can't see {folder.parent}; mount qBittorrent's downloads folder there")
+    if problems:
+        return {"status": "degraded", "message": f"{message}, but {'; and '.join(problems)}."}
     if indexers == 0:
         return {"status": "degraded", "message": f"{message}; add indexers in Prowlarr to find anything."}
     return {"status": "healthy", "message": message}

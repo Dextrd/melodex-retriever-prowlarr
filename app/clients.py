@@ -98,6 +98,15 @@ class QBittorrent:
         response.raise_for_status()
         return response.text.strip()
 
+    def default_save_path(self) -> str | None:
+        """Where qBittorrent saves torrents unless told otherwise, as it sees it."""
+        try:
+            response = self.client.get("/app/defaultSavePath")
+            response.raise_for_status()
+            return response.text.strip() or None
+        except Exception:
+            return None
+
     def add(self, torrent: bytes | str, save_path: str, category: str, tags: str) -> None:
         # qBittorrent 5 calls it stopped, 4 paused; each ignores the other.
         data = {"savepath": save_path, "category": category, "tags": tags, "stopped": "true", "paused": "true"}

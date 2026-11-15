@@ -61,6 +61,11 @@ qbittorrent:
     - downloads:/downloads
 ```
 
+Where qBittorrent mounts it somewhere else, say the pool at `/data` with torrents in `/data/torrents`, set **Save
+folder** to the path qBittorrent sees (`/data/torrents/melodex`) and **Save folder for this plugin** to the path the
+plugin sees (`/downloads/melodex`). The health check warns when **Save folder** isn't under qBittorrent's own default
+save path, as qBittorrent can't write anywhere it doesn't have: fetches then fail with "Permission denied".
+
 Then add `http://retriever-prowlarr:8080` under Settings → Plugins in Melodex (it's one of the templates under Add),
 and fill in Prowlarr's API key in its settings.
 
