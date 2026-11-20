@@ -6,8 +6,8 @@ is what your indexers offer; it's up to you to use ones whose music you're allow
 [PandaCD](https://pandacd.io), a public tracker for Creative Commons and artist-permitted music, is a good one to start
 with.
 
-It runs beside [Melodex](https://github.com/dextrd/Melodex) as a container of its own, which Melodex reaches over the
-[retrieval plugin contract](https://github.com/dextrd/Melodex/blob/main/docs/contracts/README.md).
+It runs beside [Melodex](https://github.com/Dextrd/Melodex) as a container of its own, which Melodex reaches over the
+[retrieval plugin contract](https://github.com/Dextrd/Melodex/blob/main/docs/contracts/README.md).
 
 ## What it does
 
@@ -84,7 +84,7 @@ until one of them is changed, so tagging the library's copy leaves the seeding o
 tags changed take space.
 
 The plugin copies into staging as reflinks, and Melodex's import worker carries them on into the library (see
-[the import worker](https://github.com/dextrd/Melodex/blob/main/docs/import-worker.md#reflinks)). That needs:
+[the import worker](https://github.com/Dextrd/Melodex/blob/main/docs/import-worker.md#reflinks)). That needs:
 
 - btrfs, XFS made with reflink support, or ZFS 2.2 or later. Not ext4, network shares, or unRAID's `/mnt/user`.
 - qBittorrent's downloads, the staging volume and your library all on that same filesystem. Make `staging` a folder
