@@ -6,7 +6,8 @@ is what your indexers offer; it's up to you to use ones whose music you're allow
 [PandaCD](https://pandacd.io), a public tracker for Creative Commons and artist-permitted music, is a good one to start
 with.
 
-It lives in the Melodex repository for now and will move to its own repository later.
+It runs beside [Melodex](https://github.com/dextrd/Melodex) as a container of its own, which Melodex reaches over the
+[retrieval plugin contract](https://github.com/dextrd/Melodex/blob/main/docs/contracts/README.md).
 
 ## What it does
 
@@ -44,22 +45,27 @@ Melodex gives up on a fetch that makes no progress for 30 minutes, and cancels i
 | `afterwards` | `keep` | `keep` leaves the torrent seeding; `remove` takes it out, with its files, once Melodex has a copy. |
 | `reflinks` | on | Copies files as reflinks, so music you keep seeding isn't stored twice. Where they can't be made, files are copied as usual. |
 
-## Running it
+## Adding it to Melodex
 
-The plugin has to read what qBittorrent downloads, so both mount the same downloads volume:
+Add this under `services:` in the compose file you run Melodex with, beside `core` and `beets-worker`, so it shares
+their `staging` volume:
 
 ```yaml
-retriever-prowlarr:
-  build: plugins/retriever-prowlarr
-  volumes:
-    - staging:/staging
-    - downloads:/downloads:ro
-
-qbittorrent:
-  image: lscr.io/linuxserver/qbittorrent
-  volumes:
-    - downloads:/downloads
+  retriever-prowlarr:
+    image: ghcr.io/dextrd/melodex-retriever-prowlarr:latest
+    container_name: melodex-retriever-prowlarr
+    user: "${PUID:-1000}:${PGID:-1000}"
+    restart: unless-stopped
+    volumes:
+      - staging:/staging
+      - ${DOWNLOADS_PATH:-./downloads}:/downloads:ro
 ```
+
+`DOWNLOADS_PATH` is qBittorrent's downloads folder, which qBittorrent mounts at `/downloads` too; set it in the `.env` file beside your compose file, or write the path in its place.
+
+Then start it with `docker compose up -d`. `latest` follows each release; to choose when it changes, use a version
+such as `2` or `2.0.0` instead. On SELinux hosts with podman, give it the same `security_opt` as Melodex's own
+containers.
 
 Where qBittorrent mounts it somewhere else, say the pool at `/data` with torrents in `/data/torrents`, set **Save
 folder** to the path qBittorrent sees (`/data/torrents/melodex`) and **Save folder for this plugin** to the path the
@@ -78,7 +84,7 @@ until one of them is changed, so tagging the library's copy leaves the seeding o
 tags changed take space.
 
 The plugin copies into staging as reflinks, and Melodex's import worker carries them on into the library (see
-[the import worker](../../docs/import-worker.md#reflinks)). That needs:
+[the import worker](https://github.com/dextrd/Melodex/blob/main/docs/import-worker.md#reflinks)). That needs:
 
 - btrfs, XFS made with reflink support, or ZFS 2.2 or later. Not ext4, network shares, or unRAID's `/mnt/user`.
 - qBittorrent's downloads, the staging volume and your library all on that same filesystem. Make `staging` a folder

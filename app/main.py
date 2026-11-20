@@ -14,7 +14,7 @@ from .clients import Prowlarr, QBittorrent
 from .contract import (CONTRACT_VERSION, FetchRequest, HealthRequest, Jobs, SearchRequest, dump, env, error,
                        staging_directory)
 
-VERSION = "0.1.0"
+VERSION = "2.0.0"
 STAGING = env("STAGING_ROOT", "/staging")
 
 SETTINGS_SCHEMA: dict[str, Any] = {
